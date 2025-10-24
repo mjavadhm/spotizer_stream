@@ -164,7 +164,7 @@ async def stream_track(track_id: int, db: AsyncSession = Depends(get_db)):
     async def telethon_file_iterator(file_id):
         try:
             message_id = int(file_id)
-            message = await client.get_messages('me', ids=message_id)
+            message = await client.get_messages('@Spotizer_bot', ids=message_id)
             if message and message.audio:
                 async for chunk in client.iter_download(message.audio):
                     yield chunk

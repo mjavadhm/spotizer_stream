@@ -23,10 +23,10 @@ client = TelegramClient('spotizer_stream/telegram_service/my_session', api_id, a
 @client.on(events.NewMessage(from_users='@Spotizer_bot'))
 async def track_handler(event):
     message = event.message
-    if message.audio and message.caption:
+    if message.audio and message.text:
         try:
-            db_id = int(message.caption)
-            telethon_file_id = message.audio.id
+            db_id = int(message.text)
+            telethon_file_id = message.id # Use the message ID, not the audio ID
 
             async for db in get_db():
                 await crud.update_track_telethon_file_id(db, track_id=db_id, telethon_file_id=str(telethon_file_id))
@@ -34,7 +34,7 @@ async def track_handler(event):
 
             print(f"Track {db_id} processed. telethon_file_id: {telethon_file_id}")
         except (ValueError, TypeError):
-            print(f"Could not parse track ID from caption: {message.caption}")
+            print(f"Could not parse track ID from caption: {message.text}")
         except Exception as e:
             print(f"Error processing track: {e}")
 
