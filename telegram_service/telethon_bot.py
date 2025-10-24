@@ -12,8 +12,8 @@ from ..database import get_db
 
 load_dotenv()
 
-api_id = os.getenv("API_ID", '22456473')
-api_hash = os.getenv("API_HASH", 'bdf758a96debbe58f6714bce74eb5834')
+api_id = os.getenv("API_ID")
+api_hash = os.getenv("API_HASH")
 phone_number = os.getenv("PHONE_NUMBER")
 
 

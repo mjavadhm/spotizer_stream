@@ -13,3 +13,9 @@ class Playlist(BaseModel):
     playlist_name: str
     description: Optional[str] = None
     tracks: List[Track]
+
+class UserDownloadsResponse(BaseModel):
+    page: int
+    limit: int
+    total_tracks: int
+    tracks: List[Track]

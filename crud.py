@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import selectinload
 
@@ -96,3 +97,28 @@ async def get_track_by_id(db: AsyncSession, track_id: int) -> Optional[models.Tr
     Retrieves a track by its primary key (ID).
     """
     return await db.get(models.Tracks, track_id)
+
+
+async def get_user_downloads(db: AsyncSession, user_id: int, page: int, limit: int) -> List[models.UserDownloads]:
+    """
+    Retrieves a paginated list of a user's downloads.
+    """
+    offset = (page - 1) * limit
+    query = (
+        select(models.UserDownloads)
+        .where(models.UserDownloads.user_id == user_id)
+        .order_by(models.UserDownloads.downloaded_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+async def count_user_downloads(db: AsyncSession, user_id: int) -> int:
+    """
+    Counts the total number of a user's downloads.
+    """
+    query = select(func.count(models.UserDownloads.download_id)).where(models.UserDownloads.user_id == user_id)
+    result = await db.execute(query)
+    return result.scalar_one()

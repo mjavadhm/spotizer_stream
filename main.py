@@ -49,6 +49,54 @@ async def shutdown_event():
     await client.disconnect()
     print("Telethon client has disconnected.")
 
+async def _process_tracks(db: AsyncSession, track_deezer_ids: list[str]) -> list[schemas.Track]:
+    """
+    Helper function to process a list of track Deezer IDs.
+    """
+    target_quality = "MP3_128"
+    ready_tracks = await crud.get_tracks_by_deezer_ids(db, deezer_ids=track_deezer_ids, quality=target_quality)
+    ready_tracks_map = {track.track_id: track for track in ready_tracks}
+
+    base_info_tracks = await crud.get_any_track_info_by_deezer_ids(db, deezer_ids=track_deezer_ids)
+    base_info_map = {track.track_id: track for track in base_info_tracks}
+
+    final_tracks_list = []
+    download_needed_tracks = []
+    for track_id_str in track_deezer_ids:
+        if track_id_str in ready_tracks_map:
+            track_data = ready_tracks_map[track_id_str]
+            final_tracks_list.append(schemas.Track(
+                id=track_data.id,
+                title=track_data.title,
+                artist=track_data.artist,
+                duration=track_data.duration,
+                file_id=track_data.file_id,
+                telethon_file_id=track_data.telethon_file_id
+            ))
+        elif track_id_str in base_info_map:
+            track_data = base_info_map[track_id_str]
+            final_tracks_list.append(schemas.Track(
+                id=track_data.id,
+                title=track_data.title,
+                artist=track_data.artist,
+                duration=track_data.duration,
+                file_id=None,
+                telethon_file_id=None
+            ))
+            if track_id_str not in DOWNLOADING_TRACKS:
+                download_needed_tracks.append(track_id_str)
+
+    if download_needed_tracks:
+        for track_id in download_needed_tracks:
+            DOWNLOADING_TRACKS.append(track_id)
+        asyncio.create_task(download_multiple_tracks(download_needed_tracks))
+
+    tracks_to_forward = [track for track in ready_tracks if not track.telethon_file_id]
+    if tracks_to_forward:
+        asyncio.create_task(forward_tracks_to_telethon(tracks_to_forward))
+
+    return final_tracks_list
+
 @app.get("/api/playlist/{playlist_uuid}", response_model=schemas.Playlist)
 async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
@@ -63,70 +111,19 @@ async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get
     # ۲. استخراج اطلاعات پلی‌لیست و deezer_id ها
     # اطلاعات پلی‌لیست در تمام ردیف‌ها یکسان است، پس از ردیف اول استفاده می‌کنیم
     playlist = query_results[0][0]  # [0] برای ردیف اول، [0] برای آبجکت Playlists
-    
+
     # deezer_id ها را از تمام ردیف‌ها استخراج می‌کنیم
     track_deezer_ids = [row[1].track_deezer_id for row in query_results if row[1] is not None]
     str_track_ids = [str(tid) for tid in track_deezer_ids]
     print(f"Extracted Deezer IDs: {str_track_ids}")
-    if not track_deezer_ids:
-
+    if not str_track_ids:
         return schemas.Playlist(
             playlist_name=playlist.name,
             description=playlist.description,
             tracks=[]
         )
 
-
-    target_quality = "MP3_128"
-    ready_tracks = await crud.get_tracks_by_deezer_ids(db, deezer_ids=str_track_ids, quality=target_quality)
-    ready_tracks_map = {track.track_id: track for track in ready_tracks}
-
-    base_info_tracks = await crud.get_any_track_info_by_deezer_ids(db, deezer_ids=str_track_ids)
-    base_info_map = {track.track_id: track for track in base_info_tracks}
-    file_id_downlaods = []
-    final_tracks_list = []
-    download_needed_tracks = []
-    for track_id_str in str_track_ids:
-        if track_id_str in ready_tracks_map:
-            if track_id_str in DOWNLOADING_TRACKS:
-                DOWNLOADING_TRACKS.remove(track_id_str)
-            else:
-                file_id_downlaods.append(track_id_str)
-            track_data = ready_tracks_map[track_id_str]
-            
-            final_tracks_list.append(schemas.Track(
-                id=track_data.id,
-                title=track_data.title,
-                artist=track_data.artist,
-                duration=track_data.duration,
-                file_id=track_data.file_id,
-                telethon_file_id=track_data.telethon_file_id
-            ))
-
-        elif track_id_str in base_info_map:
-            track_data = base_info_map[track_id_str]
-            status = None
-            if track_id_str in DOWNLOADING_TRACKS:
-                status = "pending"
-            final_tracks_list.append(schemas.Track(
-                id=track_data.id,
-                title=track_data.title,
-                artist=track_data.artist,
-                duration=track_data.duration,
-                file_id=None,
-                telethon_file_id=None
-            ))
-            if track_id_str not in DOWNLOADING_TRACKS:
-                download_needed_tracks.append(track_id_str)
-    # asyncio.create_task(get_multiple_tracks(file_id_downlaods))
-    if download_needed_tracks:
-        for track_id in download_needed_tracks:
-            DOWNLOADING_TRACKS.append(track_id)
-        asyncio.create_task(download_multiple_tracks(download_needed_tracks))
-
-    tracks_to_forward = [track for track in ready_tracks if not track.telethon_file_id]
-    if tracks_to_forward:
-        asyncio.create_task(forward_tracks_to_telethon(tracks_to_forward))
+    final_tracks_list = await _process_tracks(db, str_track_ids)
 
     return schemas.Playlist(
         playlist_name=playlist.name,
@@ -196,3 +193,27 @@ async def stream_track(track_id: int, db: AsyncSession = Depends(get_db)):
         return StreamingResponse(bot_api_file_iterator(track.file_id), media_type="audio/mpeg")
     else:
         raise HTTPException(status_code=404, detail="Track has no file ID")
+
+
+@app.get("/api/user/{user_id}/downloads", response_model=schemas.UserDownloadsResponse)
+async def get_user_downloads_endpoint(user_id: int, page: int = 1, db: AsyncSession = Depends(get_db)):
+    """
+    Retrieves a paginated list of a user's downloaded tracks.
+    """
+    limit = 10
+    user_downloads = await crud.get_user_downloads(db, user_id=user_id, page=page, limit=limit)
+    total_tracks = await crud.count_user_downloads(db, user_id=user_id)
+
+    if not user_downloads:
+        return schemas.UserDownloadsResponse(page=page, limit=limit, total_tracks=total_tracks, tracks=[])
+
+    track_deezer_ids = [str(download.deezer_id) for download in user_downloads]
+
+    final_tracks_list = await _process_tracks(db, track_deezer_ids)
+
+    return schemas.UserDownloadsResponse(
+        page=page,
+        limit=limit,
+        total_tracks=total_tracks,
+        tracks=final_tracks_list
+    )
