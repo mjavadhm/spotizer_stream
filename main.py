@@ -158,6 +158,8 @@ async def stream_track(track_id: int, db: AsyncSession = Depends(get_db)):
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
+    media_type = track.content_type if track.content_type else "audio/mpeg"
+
     async def telethon_file_iterator(file_id):
         try:
             message_id = int(file_id)
@@ -188,9 +190,9 @@ async def stream_track(track_id: int, db: AsyncSession = Depends(get_db)):
             print(f"An error occurred during Bot API streaming proxy: {e}")
 
     if track.telethon_file_id:
-        return StreamingResponse(telethon_file_iterator(track.telethon_file_id), media_type="audio/mpeg")
+        return StreamingResponse(telethon_file_iterator(track.telethon_file_id), media_type=media_type)
     elif track.file_id:
-        return StreamingResponse(bot_api_file_iterator(track.file_id), media_type="audio/mpeg")
+        return StreamingResponse(bot_api_file_iterator(track.file_id), media_type=media_type)
     else:
         raise HTTPException(status_code=404, detail="Track has no file ID")
 
