@@ -158,7 +158,10 @@ async def stream_track(track_id: int, db: AsyncSession = Depends(get_db)):
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
 
-    media_type = track.content_type if track.content_type else "audio/mpeg"
+    if track.quality == 'FLAC':
+        media_type = 'audio/flac'
+    else:
+        media_type = 'audio/mpeg'
 
     async def telethon_file_iterator(file_id):
         try:
