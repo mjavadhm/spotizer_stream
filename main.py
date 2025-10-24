@@ -102,8 +102,6 @@ async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get
                 file_id=track_data.file_id,
                 telethon_file_id=track_data.telethon_file_id
             ))
-            if not track_data.telethon_file_id:
-                download_needed_tracks.append(track_data)
 
         elif track_id_str in base_info_map:
             track_data = base_info_map[track_id_str]
@@ -111,6 +109,7 @@ async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get
             if track_id_str in DOWNLOADING_TRACKS:
                 status = "pending"
             final_tracks_list.append(schemas.Track(
+                id=track_data.id,
                 title=track_data.title,
                 artist=track_data.artist,
                 duration=track_data.duration,
@@ -118,18 +117,38 @@ async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get
                 telethon_file_id=None
             ))
             if track_id_str not in DOWNLOADING_TRACKS:
-                download_needed_tracks.append(base_info_map[track_id_str])
+                download_needed_tracks.append(track_id_str)
     # asyncio.create_task(get_multiple_tracks(file_id_downlaods))
     if download_needed_tracks:
-        for track in download_needed_tracks:
-            DOWNLOADING_TRACKS.append(track.track_id)
+        for track_id in download_needed_tracks:
+            DOWNLOADING_TRACKS.append(track_id)
         asyncio.create_task(download_multiple_tracks(download_needed_tracks))
+
+    tracks_to_forward = [track for track in ready_tracks if not track.telethon_file_id]
+    if tracks_to_forward:
+        asyncio.create_task(forward_tracks_to_telethon(tracks_to_forward))
 
     return schemas.Playlist(
         playlist_name=playlist.name,
         description=playlist.description,
         tracks=final_tracks_list
     )
+
+
+async def forward_tracks_to_telethon(tracks: list):
+    """
+    Forwards tracks to the Telethon user using the Aiogram bot.
+    """
+    for track in tracks:
+        try:
+            await bot.send_audio(
+                chat_id=7631847071,
+                audio=track.file_id,
+                caption=str(track.id)
+            )
+            await asyncio.sleep(1)  # Avoid rate limiting
+        except Exception as e:
+            print(f"Error forwarding track {track.id} to Telethon user: {e}")
     
     
 @app.get("/stream/track/{track_id}")
