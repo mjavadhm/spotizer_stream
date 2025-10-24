@@ -77,3 +77,15 @@ async def get_any_track_info_by_deezer_ids(
     query = select(models.Tracks).filter(models.Tracks.track_id.in_(deezer_ids))
     result = await db.execute(query)
     return result.scalars().all()
+
+
+async def update_track_telethon_file_id(db: AsyncSession, track_id: int, telethon_file_id: str):
+    """
+    Updates the `telethon_file_id` for a given track ID.
+    """
+    track = await db.get(models.Tracks, track_id)
+    if track:
+        track.telethon_file_id = telethon_file_id
+        await db.commit()
+        return track
+    return None

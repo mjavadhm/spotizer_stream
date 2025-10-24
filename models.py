@@ -23,6 +23,7 @@ class Tracks(Base):
     track_id: Mapped[Optional[str]] = mapped_column(String(64))
     url: Mapped[Optional[str]] = mapped_column(Text)
     file_id: Mapped[Optional[str]] = mapped_column(Text)
+    telethon_file_id: Mapped[Optional[str]] = mapped_column(Text)
     title: Mapped[Optional[str]] = mapped_column(String(255))
     artist: Mapped[Optional[str]] = mapped_column(String(255))
     album: Mapped[Optional[str]] = mapped_column(String(255))

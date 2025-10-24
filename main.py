@@ -98,7 +98,8 @@ async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get
                 title=track_data.title,
                 artist=track_data.artist,
                 duration=track_data.duration,
-                file_id=track_data.file_id
+                file_id=track_data.file_id,
+                telethon_file_id=track_data.telethon_file_id
             ))
 
         elif track_id_str in base_info_map:
@@ -110,14 +111,15 @@ async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get
                 title=track_data.title,
                 artist=track_data.artist,
                 duration=track_data.duration,
-                file_id=None
+                file_id=None,
+                telethon_file_id=None
             ))
             if track_id_str not in DOWNLOADING_TRACKS:
-                download_needed_tracks.append(track_id_str)
+                download_needed_tracks.append(base_info_map[track_id_str])
     # asyncio.create_task(get_multiple_tracks(file_id_downlaods))
     if download_needed_tracks:
-        for track_id in download_needed_tracks:
-            DOWNLOADING_TRACKS.append(track_id)
+        for track in download_needed_tracks:
+            DOWNLOADING_TRACKS.append(track.track_id)
         asyncio.create_task(download_multiple_tracks(download_needed_tracks))
 
     return schemas.Playlist(
@@ -127,29 +129,42 @@ async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get
     )
     
     
-@app.get("/stream/{file_id}")
-async def stream_proxy_via_bot(file_id: str):
+@app.get("/stream/{file_id}/{is_telethon}")
+async def stream_proxy_via_bot(file_id: str, is_telethon: bool):
     """
-    لینک دانلود فایل از Bot API را به صورت جریانی (stream) پروکسی می‌کند.
+    Streams a file using either the Telethon client or the Bot API, based on the `is_telethon` flag.
     """
     
-    async def file_iterator():
+    async def telethon_file_iterator():
         try:
-            # ۱. گرفتن اطلاعات فایل و ساختن لینک دانلود کامل
+            message_id = int(file_id)
+            message = await client.get_messages('me', ids=message_id)
+            if message and message.audio:
+                async for chunk in client.iter_download(message.audio):
+                    yield chunk
+            else:
+                print(f"Telethon message {file_id} not found or not an audio file.")
+                yield b''
+        except Exception as e:
+            print(f"An error occurred during Telethon streaming: {e}")
+            yield b''
+
+    async def bot_api_file_iterator():
+        try:
             file_info = await bot.get_file(file_id)
             download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
             
-            # ۲. ارسال درخواست استریم به سرور تلگرام
             async with httpx.AsyncClient() as client:
                 async with client.stream("GET", download_url) as response:
-                    response.raise_for_status() # اگر خطا بود، exception می‌دهد
-                    
-                    # ۳. خواندن تکه‌های فایل و ارسال آن برای کاربر
+                    response.raise_for_status()
                     async for chunk in response.aiter_bytes():
                         yield chunk
         except httpx.HTTPStatusError as e:
-            print(f"Error fetching file from Telegram: {e.response.status_code}")
+            print(f"Error fetching file from Telegram Bot API: {e.response.status_code}")
         except Exception as e:
-            print(f"An error occurred during streaming proxy: {e}")
+            print(f"An error occurred during Bot API streaming proxy: {e}")
 
-    return StreamingResponse(file_iterator(), media_type="audio/mpeg")
+    if is_telethon:
+        return StreamingResponse(telethon_file_iterator(), media_type="audio/mpeg")
+    else:
+        return StreamingResponse(bot_api_file_iterator(), media_type="audio/mpeg")
