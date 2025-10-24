@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 class Track(BaseModel):
+    id: int
     title: str
     artist: str
     duration: int

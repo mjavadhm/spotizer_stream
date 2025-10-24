@@ -89,3 +89,10 @@ async def update_track_telethon_file_id(db: AsyncSession, track_id: int, teletho
         await db.commit()
         return track
     return None
+
+
+async def get_track_by_id(db: AsyncSession, track_id: int) -> Optional[models.Tracks]:
+    """
+    Retrieves a track by its primary key (ID).
+    """
+    return await db.get(models.Tracks, track_id)

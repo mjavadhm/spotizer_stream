@@ -95,12 +95,15 @@ async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get
             track_data = ready_tracks_map[track_id_str]
             
             final_tracks_list.append(schemas.Track(
+                id=track_data.id,
                 title=track_data.title,
                 artist=track_data.artist,
                 duration=track_data.duration,
                 file_id=track_data.file_id,
                 telethon_file_id=track_data.telethon_file_id
             ))
+            if not track_data.telethon_file_id:
+                download_needed_tracks.append(track_data)
 
         elif track_id_str in base_info_map:
             track_data = base_info_map[track_id_str]
@@ -129,13 +132,17 @@ async def read_playlist(playlist_uuid: uuid.UUID, db: AsyncSession = Depends(get
     )
     
     
-@app.get("/stream/{file_id}/{is_telethon}")
-async def stream_proxy_via_bot(file_id: str, is_telethon: bool):
+@app.get("/stream/track/{track_id}")
+async def stream_track(track_id: int, db: AsyncSession = Depends(get_db)):
     """
-    Streams a file using either the Telethon client or the Bot API, based on the `is_telethon` flag.
+    Streams a track by its database ID.
+    It automatically determines whether to use Telethon or the Bot API.
     """
-    
-    async def telethon_file_iterator():
+    track = await crud.get_track_by_id(db, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    async def telethon_file_iterator(file_id):
         try:
             message_id = int(file_id)
             message = await client.get_messages('me', ids=message_id)
@@ -149,7 +156,7 @@ async def stream_proxy_via_bot(file_id: str, is_telethon: bool):
             print(f"An error occurred during Telethon streaming: {e}")
             yield b''
 
-    async def bot_api_file_iterator():
+    async def bot_api_file_iterator(file_id):
         try:
             file_info = await bot.get_file(file_id)
             download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
@@ -164,7 +171,9 @@ async def stream_proxy_via_bot(file_id: str, is_telethon: bool):
         except Exception as e:
             print(f"An error occurred during Bot API streaming proxy: {e}")
 
-    if is_telethon:
-        return StreamingResponse(telethon_file_iterator(), media_type="audio/mpeg")
+    if track.telethon_file_id:
+        return StreamingResponse(telethon_file_iterator(track.telethon_file_id), media_type="audio/mpeg")
+    elif track.file_id:
+        return StreamingResponse(bot_api_file_iterator(track.file_id), media_type="audio/mpeg")
     else:
-        return StreamingResponse(bot_api_file_iterator(), media_type="audio/mpeg")
+        raise HTTPException(status_code=404, detail="Track has no file ID")

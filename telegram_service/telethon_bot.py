@@ -10,9 +10,11 @@ from .. import crud
 from ..database import get_db
 
 
-api_id = '22456473'
-api_hash = 'bdf758a96debbe58f6714bce74eb5834'
-phone_number = '+9647720493654'
+load_dotenv()
+
+api_id = os.getenv("API_ID", '22456473')
+api_hash = os.getenv("API_HASH", 'bdf758a96debbe58f6714bce74eb5834')
+phone_number = os.getenv("PHONE_NUMBER")
 
 
 client = TelegramClient('spotizer_stream/telegram_service/my_session', api_id, api_hash)
